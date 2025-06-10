@@ -6,51 +6,29 @@ import (
 	"io"
 	"log"
 	"net"
-
-	uuid "github.com/google/uuid"
+	"time"
 )
 
-type User struct {
-	connection net.Conn
-	username   string
-}
-
-type Room struct {
-	users []User
-}
-
-type Message struct {
-	sender User
-	msg    string
-}
-
-func handleConnection(conn net.Conn, user User, messages chan Message) {
-	defer conn.Close()
-	fmt.Printf("Handling the connection %v\n", conn)
-	_, err := io.WriteString(conn, "client>welcome to the room user: "+user.username+" \n>")
-	if err != nil {
-		fmt.Printf("Cannot write to client: %v", err)
-
-	}
-	for {
-		fmt.Println("Start")
-
-		// read in data returned to us and output to screen
-		nr := bufio.NewReader(conn)
-		ns := bufio.NewScanner(nr)
-		for ns.Scan() {
-			// messages <- ns.Text()
-			// instead of a string channel we now have a Message channel
-			messages <- Message{
-				sender: user,
-				msg:    ns.Text(),
-			}
-		}
-		fmt.Println("End")
-		{
-			break
-		}
-	}
+// Function to return our local date and time,
+// useful for our messages to have some form of
+// date and timestamp
+// (Taken from docs: https://pkg.go.dev/time#Time.Format)
+// The layout string used by the Parse function and Format method
+// shows by example how the reference time should be represented.
+// We stress that one must show how the reference time is formatted,
+// not a time of the user's choosing. Thus each layout string is a
+// representation of the time stamp,
+//
+//	Jan 2 15:04:05 2006 MST
+//
+// An easy way to remember this value is that it holds, when presented
+// in this order, the values (lined up with the elements above):
+//
+//	1 2  3  4  5    6  -7
+func returnCurrentTime() string {
+	now := time.Now().Local()
+	log.Printf("date time: %v", now.String())
+	return string(now.Day())
 }
 
 func main() {
@@ -63,13 +41,15 @@ func main() {
 	// setup a room :)
 	red := Room{}
 
-	fmt.Println("Hello World!")
-
 	// Setup a listener to listen for TCP connections
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		log.Fatalf("Failed to establish a connection: %v", err)
 	}
+
+	// Utilizing logger for stdout
+	logger := log.Default()
+	logger.Println("Weave online")
 
 	// connection setups
 	for {
@@ -80,17 +60,35 @@ func main() {
 		}
 
 		// generate a username for our new connection
-		u := uuid.NewString()
+		// u := uuid.NewString()
+		// New logic, ask user for username :p
+		go func() {
 
-		// lets add the connection to our room
-		us := User{username: u, connection: conn}
-		red.users = append(red.users, us)
-		fmt.Printf("Users: %v", red.users)
+			var u string
 
-		go handleConnection(conn, us, messages)
+			_, err = io.WriteString(conn, returnCurrentTime()+" : Give yourself a username: ")
+			if err != nil {
+				log.Println("Could not send message to gather username")
+			}
+			// setup a temp reader to collect input from user
+			ns := bufio.NewScanner(bufio.NewReader(conn))
+			for ns.Scan() {
+				u = ns.Text()
+				log.Printf("User has selected: %v\n", u)
+				break
+			}
 
-		fmt.Println("exiting handle")
+			// ok so we might need to make the logic to add the user details
+			// part of this goroutine as well
+			// lets add the connection to our room
+			us := User{username: u, connection: conn}
+			red.users = append(red.users, us)
+			fmt.Printf("Users: %v", red.users)
 
+			go handleConnection(conn, us, messages)
+			fmt.Println("exiting handle")
+
+		}()
 		// continuously loop and check for messages
 		// ideally, we want to put our connections in a room :)
 		// we use a nameless func here to ensure that we split this
@@ -103,7 +101,7 @@ func main() {
 				// Ideally though, this username is the username we are broadcasting to...
 				// we also want to know who is the sender :)
 				for _, u := range red.users {
-					_, err := io.WriteString(u.connection, msg.sender.username+">"+msg.msg+"\n>")
+					_, err := io.WriteString(u.connection, msg.sender.username+" > "+msg.msg+"\n>")
 					if err != nil {
 						fmt.Printf("Cannot send to client: %v", err)
 					}
