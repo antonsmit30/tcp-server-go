@@ -19,7 +19,12 @@ type Room struct {
 	users []User
 }
 
-func handleConnection(conn net.Conn, user User, messages chan string) {
+type Message struct {
+	sender User
+	msg    string
+}
+
+func handleConnection(conn net.Conn, user User, messages chan Message) {
 	defer conn.Close()
 	fmt.Printf("Handling the connection %v\n", conn)
 	_, err := io.WriteString(conn, "client>welcome to the room user: "+user.username+" \n>")
@@ -34,8 +39,12 @@ func handleConnection(conn net.Conn, user User, messages chan string) {
 		nr := bufio.NewReader(conn)
 		ns := bufio.NewScanner(nr)
 		for ns.Scan() {
-			// fmt.Println(ns.Text())
-			messages <- ns.Text()
+			// messages <- ns.Text()
+			// instead of a string channel we now have a Message channel
+			messages <- Message{
+				sender: user,
+				msg:    ns.Text(),
+			}
 		}
 		fmt.Println("End")
 		{
@@ -48,13 +57,15 @@ func main() {
 
 	// channel for messages
 	// Making a buffer of 100 messages for concurrent messages to be sent
-	messages := make(chan string, 100)
+	// messages := make(chan string, 100)
+	messages := make(chan Message, 100)
 
 	// setup a room :)
 	red := Room{}
 
 	fmt.Println("Hello World!")
 
+	// Setup a listener to listen for TCP connections
 	ln, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		log.Fatalf("Failed to establish a connection: %v", err)
@@ -87,10 +98,12 @@ func main() {
 		go func() {
 
 			for msg := range messages {
-				fmt.Println(msg)
-				// we also want to loop through our connections in our room and broadcast!
+				fmt.Println(msg.sender.username)
+				// we also want to loop through our connections in our room and broadcast.
+				// Ideally though, this username is the username we are broadcasting to...
+				// we also want to know who is the sender :)
 				for _, u := range red.users {
-					_, err := io.WriteString(u.connection, u.username+">"+msg+"\n>")
+					_, err := io.WriteString(u.connection, msg.sender.username+">"+msg.msg+"\n>")
 					if err != nil {
 						fmt.Printf("Cannot send to client: %v", err)
 					}
